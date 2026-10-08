@@ -1,0 +1,1175 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>コーヒー売上ダッシュボード</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap">
+<style>
+/* Layout: 見出し＋期間フィルタ → KPI帯（合計売上を主役に） → [月別推移 | 商品別ランキング] → 商品×月の表 */
+:root {
+  --plane: #f5f5f2;
+  --surface: #fdfdfc;
+  --ink: #151513;
+  --ink-2: #55544f;
+  --muted: #85837c;
+  --grid: #e4e3dc;
+  --axis: #c3c2b7;
+  --line: rgba(21, 21, 19, 0.10);
+  --accent: #2a78d6;
+  --accent-soft: #86b6ef;
+  --accent-wash: rgba(42, 120, 214, 0.08);
+  --on-accent: #ffffff;
+  --up: #006300;
+  --down: #c03030;
+  --font: "BIZ UDPGothic", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --plane: #0e0e0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #8f8d86;
+    --grid: #2c2c2a; --axis: #45453f; --line: rgba(255, 255, 255, 0.10);
+    --accent: #3987e5; --accent-soft: #1c5cab; --accent-wash: rgba(57, 135, 229, 0.12);
+    --up: #2fbf2f; --down: #ef7a7a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --plane: #0e0e0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #8f8d86;
+  --grid: #2c2c2a; --axis: #45453f; --line: rgba(255, 255, 255, 0.10);
+  --accent: #3987e5; --accent-soft: #1c5cab; --accent-wash: rgba(57, 135, 229, 0.12);
+  --up: #2fbf2f; --down: #ef7a7a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--plane); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.6; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: clamp(16px, 3vw, 32px); padding-block: 28px 56px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+
+/* 見出し */
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; }
+.eyebrow { margin: 0; font-size: 12px; letter-spacing: 0.08em; color: var(--muted); }
+h1 { margin: 2px 0 0; font-size: 1.65rem; line-height: 1.3; }
+h1 span { display: inline-block; }
+.period { margin: 4px 0 0; color: var(--ink-2); }
+.top > * { min-width: 0; max-width: 100%; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+.seg { display: inline-flex; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: transparent; padding: 5px 12px; border-radius: 6px; cursor: pointer; color: var(--ink-2); white-space: nowrap; }
+.seg button:hover { background: var(--accent-wash); color: var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); font-weight: 700; }
+
+.filebtn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px dashed var(--axis); border-radius: 8px; color: var(--ink-2); cursor: pointer; background: transparent; }
+.filebtn:hover { border-color: var(--accent); color: var(--ink); }
+.filebtn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+#file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+[hidden] { display: none !important; }
+.picker { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.picker label { font-size: 12px; color: var(--ink-2); }
+.picker select { flex: 1 1 14em; min-width: 0; max-width: 24em; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+.picker button { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; }
+.picker button:hover { border-color: var(--accent); color: var(--ink); }
+.status { margin: 0; font-size: 13px; color: var(--muted); }
+.status.err { color: var(--down); }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; min-width: 0; }
+.card h2 { margin: 0; font-size: 1.05rem; }
+.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 16px; }
+.sub { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+
+/* KPI帯 */
+.kpis { display: grid; grid-template-columns: 1.6fr repeat(3, 1fr); padding: 0; }
+.kpi { padding: 18px 20px; min-width: 0; }
+.kpi + .kpi { border-left: 1px solid var(--line); }
+.kpi .label { font-size: 12px; color: var(--ink-2); }
+.kpi .value { font-size: 1.75rem; font-weight: 700; line-height: 1.25; margin-top: 4px; }
+.kpi.hero .value { font-size: clamp(2rem, 8vw, 3.2rem); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.kpi .value small { font-size: 0.5em; font-weight: 400; color: var(--ink-2); margin-left: 2px; }
+.kpi .note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.delta { font-weight: 700; }
+.delta.up { color: var(--up); }
+.delta.down { color: var(--down); }
+
+.panels { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr); gap: 20px; }
+
+/* 月別推移（縦棒） */
+.colchart { position: relative; height: 240px; }
+.plot { position: absolute; left: 56px; right: 8px; top: 26px; bottom: 0; border-bottom: 1px solid var(--axis); }
+.gl { position: absolute; left: 0; right: 0; border-top: 1px solid var(--grid); }
+.gl span { position: absolute; right: calc(100% + 8px); transform: translateY(-50%); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cols { position: absolute; inset: -26px 0 0 0; display: flex; }
+.col { flex: 1; height: 100%; border: 0; background: transparent; cursor: pointer; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 26px 0 0; border-radius: 6px 6px 0 0; }
+.col:hover, .col:focus-visible { background: var(--accent-wash); }
+.bar { position: relative; width: 24px; background: var(--accent); border-radius: 4px 4px 0 0; }
+.bar.dim { background: var(--accent-soft); }
+.bar .v { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.bar.dim .v { color: var(--ink-2); font-weight: 400; }
+.xlabels { display: flex; margin: 8px 8px 0 56px; }
+.xlabels div { flex: 1; text-align: center; font-size: 12px; color: var(--ink-2); line-height: 1.4; }
+.xlabels .d { display: block; font-size: 11px; }
+.xlabels .sel { color: var(--ink); font-weight: 700; }
+
+/* 商品別ランキング（横棒） */
+.rank { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.rk { display: grid; grid-template-columns: 1.75em minmax(8.5em, 11em) minmax(0, 1fr) 3.6em; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; }
+.rk:hover, .rk:focus-visible { background: var(--accent-wash); }
+.rk .no { font-weight: 700; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.rk:nth-child(-n+3) .no { color: var(--ink); }
+.rk .nm { min-width: 0; line-height: 1.35; }
+.rk .nm b { display: block; font-weight: 700; overflow-wrap: anywhere; }
+.rk .nm span { font-size: 11px; color: var(--muted); }
+.track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fill { height: 18px; width: calc((100% - 6.5em) * var(--p)); min-width: 2px; background: var(--accent); border-radius: 0 4px 4px 0; flex: none; }
+.track .val { font-size: 13px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rk .share { text-align: right; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+/* エリア別 営業優先度 */
+table.area { min-width: 860px; }
+table.area th, table.area td { padding-inline: 8px; }
+table.area td small.sh { display: block; margin-top: 2px; line-height: 1.3; color: var(--muted); }
+table.area td.l, table.area th.l { text-align: left; }
+table.area tr.main td { border-bottom: 0; padding-bottom: 4px; }
+table.area td.why { white-space: normal; padding-top: 0; padding-bottom: 14px; line-height: 1.6; color: var(--ink-2); }
+table.area td.why b { color: var(--ink); margin-right: 8px; }
+table.area th small { display: block; font-size: 11px; color: var(--muted); }
+table.area tr.out td { color: var(--muted); }
+table.area td.best { background: var(--accent-wash); font-weight: 700; }
+.pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid var(--line); color: var(--ink-2); white-space: nowrap; }
+.pill.top { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+.pill.focus { border-color: var(--accent); color: var(--ink); }
+.pill.out { font-weight: 400; color: var(--muted); }
+.score { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+.sbar { width: 56px; height: 6px; background: var(--grid); border-radius: 3px; overflow: hidden; }
+.sbar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.areanote { margin: 12px 0 0; font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+/* 表 */
+.tablebox { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; min-width: 520px; }
+th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+thead th { font-size: 12px; font-weight: 400; color: var(--muted); border-bottom-color: var(--axis); }
+tfoot td { font-weight: 700; border-bottom: 0; border-top: 1px solid var(--axis); }
+td.cat { color: var(--ink-2); font-size: 12px; }
+.hl { background: var(--accent-wash); }
+
+.foot { font-size: 12px; color: var(--muted); margin: 0; }
+
+#tip { position: fixed; z-index: 10; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.5; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12); max-width: 260px; }
+#tip b { display: block; font-size: 13px; margin-bottom: 2px; }
+#tip .r { display: flex; justify-content: space-between; gap: 16px; }
+#tip .r span:first-child { color: var(--ink-2); }
+#tip .r span:last-child { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+body.dragging .wrap { outline: 2px dashed var(--accent); outline-offset: -8px; }
+
+@media (max-width: 860px) {
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .kpi.hero { grid-column: 1 / -1; }
+  .kpi + .kpi { border-left: 0; border-top: 1px solid var(--line); }
+  .kpi:nth-child(3) { border-left: 1px solid var(--line); }
+  .panels { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 520px) {
+  .kpis { grid-template-columns: minmax(0, 1fr); }
+  .kpi:nth-child(3) { border-left: 0; }
+  .card:not(.kpis) { padding: 16px; }
+  .kpi { padding: 16px; }
+  .rk { grid-template-columns: 1.5em minmax(0, 1fr) 3.4em; row-gap: 4px; }
+  .rk .nm { grid-column: 2 / 3; }
+  .rk .track { grid-column: 2 / 4; grid-row: 2; }
+  .rk .share { grid-column: 3; grid-row: 1; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .bar, .fill { transition: height 0.25s ease, width 0.25s ease, background-color 0.15s; }
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="eyebrow">SALES DASHBOARD</p>
+      <h1><span>コーヒー商品</span> <span>売上ダッシュボード</span></h1>
+      <p class="period" id="period"></p>
+    </div>
+    <div class="controls">
+      <div class="seg" id="monthSeg" role="group" aria-label="集計期間"></div>
+      <div class="picker" id="picker" hidden>
+        <label for="csvSelect">業務フォルダのCSV</label>
+        <select id="csvSelect"></select>
+        <button type="button" id="rescan">一覧を更新</button>
+      </div>
+      <label class="filebtn" for="file">別のCSVを読み込む<input type="file" id="file" accept=".csv,text/csv" multiple></label>
+    </div>
+  </header>
+  <p class="status" id="status" role="status"></p>
+
+  <section class="card kpis" id="kpis" aria-label="主要指標"></section>
+
+  <div class="panels">
+    <section class="card" aria-labelledby="h-month">
+      <div class="card-head">
+        <div>
+          <h2 id="h-month">月別推移</h2>
+          <p class="sub">月ごとの売上金額。棒をクリックするとその月に絞り込みます</p>
+        </div>
+      </div>
+      <div class="colchart" id="colchart"></div>
+      <div class="xlabels" id="xlabels"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-rank">
+      <div class="card-head">
+        <div>
+          <h2 id="h-rank">商品別ランキング</h2>
+          <p class="sub" id="rankSub"></p>
+        </div>
+        <div class="seg" id="metricSeg" role="group" aria-label="並べ替えの基準">
+          <button type="button" data-metric="sales" aria-pressed="true">売上金額</button>
+          <button type="button" data-metric="qty" aria-pressed="false">数量</button>
+        </div>
+      </div>
+      <ol class="rank" id="rank"></ol>
+    </section>
+  </div>
+
+  <section class="card" aria-labelledby="h-area" id="areaCard">
+    <div class="card-head">
+      <div>
+        <h2 id="h-area">エリア別 営業優先度</h2>
+        <p class="sub" id="areaSub"></p>
+      </div>
+    </div>
+    <div class="tablebox" id="areabox"></div>
+    <p class="areanote">優先スコアの計算方法: 売上規模 25%・伸び率 30%・平均取引額 15%・定期便比率 15%・まとめ買い率 15%。各指標を地域どうしで比べて 0〜100 に換算し、重みを掛けて合計しています。<br>
+    色付きのセルは、その指標で一番良い地域です。データに顧客名がないため、「お得意様」は定期便（継続購入）とまとめ買い（1回4個以上）の多さで見ています。「その他」は地域を特定できないため、対象外としています。</p>
+  </section>
+
+  <section class="card" aria-labelledby="h-table">
+    <div class="card-head">
+      <div>
+        <h2 id="h-table">商品×月の売上表</h2>
+        <p class="sub">グラフの元になっている数字です（売上金額、円）</p>
+      </div>
+    </div>
+    <div class="tablebox" id="tablebox"></div>
+  </section>
+
+  <p class="foot">集計ルール: 1行を1件の取引として数え、「売上金額」列（数量 × 単価）を合計しています。CSVはこの画面にドラッグ＆ドロップしても読み込めます。複数のCSVを一度に選ぶと、まとめて集計します。</p>
+</div>
+<div id="tip" hidden></div>
+
+<script type="text/csv" id="csv-data">日付,商品名,カテゴリ,地域,数量,単価,売上金額
+2026-04-01,ドリップコーヒー12杯,食品,東京,3,1200,3600
+2026-04-01,カフェオレベース,食品,福岡,3,980,2940
+2026-04-01,コーヒー豆200g,食品,東京,2,1500,3000
+2026-04-02,マグカップ,雑貨,名古屋,1,1800,1800
+2026-04-02,マグカップ,雑貨,福岡,3,1800,5400
+2026-04-02,ドリップパックギフト,ギフト,名古屋,1,3200,3200
+2026-04-03,カフェオレベース,食品,大阪,3,980,2940
+2026-04-03,カフェオレベース,食品,福岡,1,980,980
+2026-04-03,コーヒー豆200g,食品,東京,1,1500,1500
+2026-04-04,タンブラー,雑貨,福岡,4,2800,11200
+2026-04-04,コーヒー豆200g,食品,大阪,5,1500,7500
+2026-04-04,タンブラー,雑貨,名古屋,4,2800,11200
+2026-04-04,ギフトセット,ギフト,福岡,2,4500,9000
+2026-04-04,ドリップコーヒー12杯,食品,福岡,3,1200,3600
+2026-04-05,マグカップ,雑貨,大阪,4,1800,7200
+2026-04-05,定期便（月1）,サブスク,大阪,2,3600,7200
+2026-04-05,ギフトセット,ギフト,福岡,1,4500,4500
+2026-04-06,カフェオレベース,食品,東京,2,980,1960
+2026-04-06,定期便（月1）,サブスク,その他,1,3600,3600
+2026-04-06,マグカップ,雑貨,札幌,3,1800,5400
+2026-04-07,マグカップ,雑貨,札幌,4,1800,7200
+2026-04-07,ドリップパックギフト,ギフト,東京,1,3200,3200
+2026-04-07,ギフトセット,ギフト,名古屋,1,4500,4500
+2026-04-08,カフェオレベース,食品,東京,1,980,980
+2026-04-08,タンブラー,雑貨,大阪,3,2800,8400
+2026-04-08,ドリップパックギフト,ギフト,その他,1,3200,3200
+2026-04-08,カフェオレベース,食品,東京,2,980,1960
+2026-04-08,ドリップコーヒー12杯,食品,東京,4,1200,4800
+2026-04-08,カフェオレベース,食品,大阪,3,980,2940
+2026-04-09,ドリップパックギフト,ギフト,その他,1,3200,3200
+2026-04-09,タンブラー,雑貨,札幌,5,2800,14000
+2026-04-09,ドリップコーヒー12杯,食品,東京,3,1200,3600
+2026-04-10,タンブラー,雑貨,大阪,3,2800,8400
+2026-04-10,タンブラー,雑貨,大阪,2,2800,5600
+2026-04-10,タンブラー,雑貨,福岡,5,2800,14000
+2026-04-10,コーヒー豆200g,食品,東京,4,1500,6000
+2026-04-10,マグカップ,雑貨,福岡,1,1800,1800
+2026-04-10,ドリップコーヒー12杯,食品,名古屋,2,1200,2400
+2026-04-10,コーヒー豆200g,食品,札幌,5,1500,7500
+2026-04-11,マグカップ,雑貨,札幌,1,1800,1800
+2026-04-11,コーヒー豆200g,食品,名古屋,1,1500,1500
+2026-04-11,コーヒー豆200g,食品,名古屋,5,1500,7500
+2026-04-11,カフェオレベース,食品,大阪,1,980,980
+2026-04-11,カフェオレベース,食品,札幌,1,980,980
+2026-04-12,マグカップ,雑貨,福岡,5,1800,9000
+2026-04-12,マグカップ,雑貨,大阪,3,1800,5400
+2026-04-12,ギフトセット,ギフト,名古屋,2,4500,9000
+2026-04-12,コーヒー豆200g,食品,東京,1,1500,1500
+2026-04-12,ドリップコーヒー12杯,食品,東京,2,1200,2400
+2026-04-12,マグカップ,雑貨,福岡,1,1800,1800
+2026-04-13,マグカップ,雑貨,東京,1,1800,1800
+2026-04-13,ギフトセット,ギフト,東京,1,4500,4500
+2026-04-13,定期便（月1）,サブスク,東京,1,3600,3600
+2026-04-14,定期便（月1）,サブスク,大阪,1,3600,3600
+2026-04-14,ドリップパックギフト,ギフト,東京,1,3200,3200
+2026-04-14,ドリップパックギフト,ギフト,大阪,1,3200,3200
+2026-04-14,ドリップコーヒー12杯,食品,その他,3,1200,3600
+2026-04-14,コーヒー豆200g,食品,福岡,1,1500,1500
+2026-04-14,コーヒー豆200g,食品,東京,1,1500,1500
+2026-04-14,定期便（月1）,サブスク,東京,1,3600,3600
+2026-04-15,マグカップ,雑貨,東京,4,1800,7200
+2026-04-15,コーヒー豆200g,食品,その他,1,1500,1500
+2026-04-15,ドリップコーヒー12杯,食品,その他,5,1200,6000
+2026-04-15,マグカップ,雑貨,名古屋,1,1800,1800
+2026-04-15,マグカップ,雑貨,その他,4,1800,7200
+2026-04-15,カフェオレベース,食品,その他,1,980,980
+2026-04-16,定期便（月1）,サブスク,福岡,1,3600,3600
+2026-04-16,定期便（月1）,サブスク,東京,1,3600,3600
+2026-04-16,ドリップコーヒー12杯,食品,名古屋,2,1200,2400
+2026-04-16,ギフトセット,ギフト,名古屋,1,4500,4500
+2026-04-16,カフェオレベース,食品,名古屋,1,980,980
+2026-04-17,コーヒー豆200g,食品,福岡,2,1500,3000
+2026-04-17,マグカップ,雑貨,その他,2,1800,3600
+2026-04-17,マグカップ,雑貨,東京,2,1800,3600
+2026-04-17,コーヒー豆200g,食品,名古屋,2,1500,3000
+2026-04-18,ギフトセット,ギフト,東京,5,4500,22500
+2026-04-18,ギフトセット,ギフト,大阪,1,4500,4500
+2026-04-18,タンブラー,雑貨,その他,2,2800,5600
+2026-04-18,コーヒー豆200g,食品,名古屋,1,1500,1500
+2026-04-18,コーヒー豆200g,食品,東京,1,1500,1500
+2026-04-18,タンブラー,雑貨,大阪,1,2800,2800
+2026-04-18,コーヒー豆200g,食品,大阪,4,1500,6000
+2026-04-19,定期便（月1）,サブスク,福岡,4,3600,14400
+2026-04-19,ドリップコーヒー12杯,食品,名古屋,3,1200,3600
+2026-04-19,コーヒー豆200g,食品,東京,5,1500,7500
+2026-04-19,コーヒー豆200g,食品,福岡,4,1500,6000
+2026-04-20,タンブラー,雑貨,東京,1,2800,2800
+2026-04-20,ギフトセット,ギフト,名古屋,1,4500,4500
+2026-04-20,タンブラー,雑貨,東京,2,2800,5600
+2026-04-20,ドリップコーヒー12杯,食品,大阪,1,1200,1200
+2026-04-21,ドリップコーヒー12杯,食品,福岡,1,1200,1200
+2026-04-21,タンブラー,雑貨,大阪,1,2800,2800
+2026-04-21,ドリップパックギフト,ギフト,東京,2,3200,6400
+2026-04-21,カフェオレベース,食品,札幌,2,980,1960
+2026-04-21,カフェオレベース,食品,東京,2,980,1960
+2026-04-22,ドリップコーヒー12杯,食品,東京,4,1200,4800
+2026-04-22,マグカップ,雑貨,大阪,3,1800,5400
+2026-04-22,ドリップパックギフト,ギフト,福岡,5,3200,16000
+2026-04-22,マグカップ,雑貨,その他,4,1800,7200
+2026-04-22,カフェオレベース,食品,東京,4,980,3920
+2026-04-23,ドリップパックギフト,ギフト,札幌,4,3200,12800
+2026-04-23,マグカップ,雑貨,福岡,1,1800,1800
+2026-04-23,コーヒー豆200g,食品,東京,1,1500,1500
+2026-04-23,定期便（月1）,サブスク,札幌,1,3600,3600
+2026-04-23,定期便（月1）,サブスク,札幌,1,3600,3600
+2026-04-24,マグカップ,雑貨,東京,1,1800,1800
+2026-04-24,ギフトセット,ギフト,東京,1,4500,4500
+2026-04-24,タンブラー,雑貨,名古屋,1,2800,2800
+2026-04-24,ギフトセット,ギフト,東京,5,4500,22500
+2026-04-25,カフェオレベース,食品,その他,2,980,1960
+2026-04-25,ドリップコーヒー12杯,食品,大阪,1,1200,1200
+2026-04-25,ギフトセット,ギフト,その他,2,4500,9000
+2026-04-25,コーヒー豆200g,食品,名古屋,1,1500,1500
+2026-04-25,タンブラー,雑貨,大阪,1,2800,2800
+2026-04-26,マグカップ,雑貨,東京,1,1800,1800
+2026-04-26,ギフトセット,ギフト,福岡,2,4500,9000
+2026-04-26,コーヒー豆200g,食品,大阪,3,1500,4500
+2026-04-26,タンブラー,雑貨,大阪,3,2800,8400
+2026-04-26,タンブラー,雑貨,東京,2,2800,5600
+2026-04-26,ドリップパックギフト,ギフト,その他,3,3200,9600
+2026-04-26,タンブラー,雑貨,札幌,2,2800,5600
+2026-04-27,タンブラー,雑貨,福岡,1,2800,2800
+2026-04-27,ギフトセット,ギフト,大阪,2,4500,9000
+2026-04-27,マグカップ,雑貨,札幌,2,1800,3600
+2026-04-27,カフェオレベース,食品,東京,3,980,2940
+2026-04-27,ギフトセット,ギフト,その他,1,4500,4500
+2026-04-28,タンブラー,雑貨,東京,1,2800,2800
+2026-04-28,ドリップコーヒー12杯,食品,その他,1,1200,1200
+2026-04-28,コーヒー豆200g,食品,その他,2,1500,3000
+2026-04-28,マグカップ,雑貨,大阪,3,1800,5400
+2026-04-29,マグカップ,雑貨,福岡,1,1800,1800
+2026-04-29,コーヒー豆200g,食品,東京,3,1500,4500
+2026-04-29,定期便（月1）,サブスク,東京,1,3600,3600
+2026-04-29,コーヒー豆200g,食品,札幌,2,1500,3000
+2026-04-29,ギフトセット,ギフト,その他,5,4500,22500
+2026-04-29,ドリップパックギフト,ギフト,名古屋,4,3200,12800
+2026-04-30,定期便（月1）,サブスク,福岡,2,3600,7200
+2026-04-30,タンブラー,雑貨,名古屋,3,2800,8400
+2026-04-30,マグカップ,雑貨,東京,1,1800,1800
+2026-04-30,タンブラー,雑貨,大阪,1,2800,2800
+2026-05-01,コーヒー豆200g,食品,東京,1,1500,1500
+2026-05-01,カフェオレベース,食品,東京,3,980,2940
+2026-05-01,ドリップパックギフト,ギフト,大阪,1,3200,3200
+2026-05-01,ドリップコーヒー12杯,食品,大阪,1,1200,1200
+2026-05-01,ドリップコーヒー12杯,食品,福岡,4,1200,4800
+2026-05-01,ドリップパックギフト,ギフト,その他,2,3200,6400
+2026-05-01,タンブラー,雑貨,札幌,3,2800,8400
+2026-05-02,マグカップ,雑貨,東京,2,1800,3600
+2026-05-02,定期便（月1）,サブスク,大阪,1,3600,3600
+2026-05-02,ドリップパックギフト,ギフト,札幌,3,3200,9600
+2026-05-02,カフェオレベース,食品,名古屋,5,980,4900
+2026-05-02,ドリップパックギフト,ギフト,福岡,2,3200,6400
+2026-05-02,コーヒー豆200g,食品,東京,2,1500,3000
+2026-05-03,カフェオレベース,食品,大阪,1,980,980
+2026-05-03,マグカップ,雑貨,大阪,2,1800,3600
+2026-05-03,ドリップパックギフト,ギフト,その他,1,3200,3200
+2026-05-03,ドリップパックギフト,ギフト,東京,1,3200,3200
+2026-05-03,ドリップコーヒー12杯,食品,東京,3,1200,3600
+2026-05-03,ギフトセット,ギフト,東京,1,4500,4500
+2026-05-04,ドリップコーヒー12杯,食品,東京,5,1200,6000
+2026-05-04,ドリップコーヒー12杯,食品,東京,2,1200,2400
+2026-05-04,定期便（月1）,サブスク,名古屋,3,3600,10800
+2026-05-05,定期便（月1）,サブスク,福岡,3,3600,10800
+2026-05-05,カフェオレベース,食品,その他,2,980,1960
+2026-05-05,コーヒー豆200g,食品,東京,3,1500,4500
+2026-05-05,タンブラー,雑貨,東京,1,2800,2800
+2026-05-06,ドリップパックギフト,ギフト,福岡,1,3200,3200
+2026-05-06,コーヒー豆200g,食品,札幌,2,1500,3000
+2026-05-06,マグカップ,雑貨,福岡,1,1800,1800
+2026-05-06,コーヒー豆200g,食品,名古屋,3,1500,4500
+2026-05-06,ドリップコーヒー12杯,食品,大阪,1,1200,1200
+2026-05-07,コーヒー豆200g,食品,大阪,2,1500,3000
+2026-05-07,ドリップパックギフト,ギフト,東京,4,3200,12800
+2026-05-07,ギフトセット,ギフト,札幌,2,4500,9000
+2026-05-07,カフェオレベース,食品,福岡,2,980,1960
+2026-05-07,タンブラー,雑貨,その他,2,2800,5600
+2026-05-08,定期便（月1）,サブスク,福岡,2,3600,7200
+2026-05-08,タンブラー,雑貨,東京,1,2800,2800
+2026-05-08,コーヒー豆200g,食品,大阪,1,1500,1500
+2026-05-08,定期便（月1）,サブスク,福岡,2,3600,7200
+2026-05-08,ギフトセット,ギフト,札幌,1,4500,4500
+2026-05-08,カフェオレベース,食品,大阪,2,980,1960
+2026-05-09,ギフトセット,ギフト,名古屋,1,4500,4500
+2026-05-09,タンブラー,雑貨,名古屋,2,2800,5600
+2026-05-09,マグカップ,雑貨,福岡,1,1800,1800
+2026-05-09,定期便（月1）,サブスク,東京,2,3600,7200
+2026-05-09,定期便（月1）,サブスク,名古屋,2,3600,7200
+2026-05-10,コーヒー豆200g,食品,大阪,1,1500,1500
+2026-05-10,マグカップ,雑貨,名古屋,1,1800,1800
+2026-05-10,定期便（月1）,サブスク,大阪,2,3600,7200
+2026-05-11,ギフトセット,ギフト,大阪,1,4500,4500
+2026-05-11,タンブラー,雑貨,東京,1,2800,2800
+2026-05-11,マグカップ,雑貨,福岡,1,1800,1800
+2026-05-11,カフェオレベース,食品,福岡,1,980,980
+2026-05-11,タンブラー,雑貨,その他,3,2800,8400
+2026-05-11,タンブラー,雑貨,札幌,5,2800,14000
+2026-05-11,タンブラー,雑貨,東京,1,2800,2800
+2026-05-12,カフェオレベース,食品,その他,1,980,980
+2026-05-12,タンブラー,雑貨,東京,3,2800,8400
+2026-05-12,定期便（月1）,サブスク,東京,1,3600,3600
+2026-05-13,定期便（月1）,サブスク,大阪,2,3600,7200
+2026-05-13,ドリップコーヒー12杯,食品,札幌,1,1200,1200
+2026-05-13,コーヒー豆200g,食品,大阪,4,1500,6000
+2026-05-13,コーヒー豆200g,食品,福岡,2,1500,3000
+2026-05-13,カフェオレベース,食品,名古屋,1,980,980
+2026-05-14,コーヒー豆200g,食品,東京,5,1500,7500
+2026-05-14,ドリップパックギフト,ギフト,札幌,2,3200,6400
+2026-05-14,マグカップ,雑貨,大阪,3,1800,5400
+2026-05-14,定期便（月1）,サブスク,名古屋,1,3600,3600
+2026-05-14,ドリップパックギフト,ギフト,名古屋,1,3200,3200
+2026-05-15,コーヒー豆200g,食品,東京,5,1500,7500
+2026-05-15,マグカップ,雑貨,東京,1,1800,1800
+2026-05-15,マグカップ,雑貨,東京,1,1800,1800
+2026-05-15,ドリップコーヒー12杯,食品,福岡,2,1200,2400
+2026-05-15,定期便（月1）,サブスク,東京,1,3600,3600
+2026-05-15,タンブラー,雑貨,大阪,3,2800,8400
+2026-05-15,マグカップ,雑貨,福岡,5,1800,9000
+2026-05-16,マグカップ,雑貨,名古屋,2,1800,3600
+2026-05-16,カフェオレベース,食品,札幌,4,980,3920
+2026-05-16,コーヒー豆200g,食品,札幌,1,1500,1500
+2026-05-16,タンブラー,雑貨,大阪,2,2800,5600
+2026-05-16,タンブラー,雑貨,その他,3,2800,8400
+2026-05-16,定期便（月1）,サブスク,名古屋,2,3600,7200
+2026-05-16,ドリップパックギフト,ギフト,名古屋,3,3200,9600
+2026-05-17,コーヒー豆200g,食品,福岡,1,1500,1500
+2026-05-17,ドリップコーヒー12杯,食品,福岡,5,1200,6000
+2026-05-17,タンブラー,雑貨,福岡,2,2800,5600
+2026-05-18,定期便（月1）,サブスク,大阪,2,3600,7200
+2026-05-18,タンブラー,雑貨,名古屋,1,2800,2800
+2026-05-18,定期便（月1）,サブスク,大阪,5,3600,18000
+2026-05-18,ドリップパックギフト,ギフト,福岡,1,3200,3200
+2026-05-19,ギフトセット,ギフト,名古屋,2,4500,9000
+2026-05-19,ドリップパックギフト,ギフト,名古屋,4,3200,12800
+2026-05-19,定期便（月1）,サブスク,東京,1,3600,3600
+2026-05-19,コーヒー豆200g,食品,大阪,5,1500,7500
+2026-05-20,ドリップコーヒー12杯,食品,名古屋,3,1200,3600
+2026-05-20,ドリップパックギフト,ギフト,名古屋,1,3200,3200
+2026-05-20,定期便（月1）,サブスク,福岡,2,3600,7200
+2026-05-20,マグカップ,雑貨,東京,1,1800,1800
+2026-05-20,タンブラー,雑貨,福岡,2,2800,5600
+2026-05-20,コーヒー豆200g,食品,名古屋,1,1500,1500
+2026-05-20,マグカップ,雑貨,大阪,3,1800,5400
+2026-05-21,ドリップパックギフト,ギフト,その他,1,3200,3200
+2026-05-21,コーヒー豆200g,食品,東京,2,1500,3000
+2026-05-21,カフェオレベース,食品,福岡,2,980,1960
+2026-05-22,タンブラー,雑貨,名古屋,2,2800,5600
+2026-05-22,定期便（月1）,サブスク,名古屋,1,3600,3600
+2026-05-22,ドリップパックギフト,ギフト,名古屋,1,3200,3200
+2026-05-22,カフェオレベース,食品,東京,4,980,3920
+2026-05-22,ドリップパックギフト,ギフト,福岡,1,3200,3200
+2026-05-22,タンブラー,雑貨,東京,4,2800,11200
+2026-05-22,タンブラー,雑貨,名古屋,4,2800,11200
+2026-05-23,カフェオレベース,食品,名古屋,2,980,1960
+2026-05-23,ギフトセット,ギフト,名古屋,2,4500,9000
+2026-05-23,定期便（月1）,サブスク,札幌,5,3600,18000
+2026-05-23,マグカップ,雑貨,東京,2,1800,3600
+2026-05-23,ドリップパックギフト,ギフト,福岡,1,3200,3200
+2026-05-23,ドリップパックギフト,ギフト,福岡,1,3200,3200
+2026-05-24,定期便（月1）,サブスク,東京,5,3600,18000
+2026-05-24,ギフトセット,ギフト,札幌,4,4500,18000
+2026-05-24,定期便（月1）,サブスク,その他,1,3600,3600
+2026-05-24,ドリップコーヒー12杯,食品,大阪,3,1200,3600
+2026-05-25,コーヒー豆200g,食品,その他,2,1500,3000
+2026-05-25,ギフトセット,ギフト,大阪,2,4500,9000
+2026-05-25,コーヒー豆200g,食品,札幌,4,1500,6000
+2026-05-25,ドリップパックギフト,ギフト,名古屋,5,3200,16000
+2026-05-26,ドリップコーヒー12杯,食品,東京,2,1200,2400
+2026-05-26,タンブラー,雑貨,福岡,5,2800,14000
+2026-05-26,ドリップパックギフト,ギフト,福岡,5,3200,16000
+2026-05-26,コーヒー豆200g,食品,福岡,2,1500,3000
+2026-05-26,ドリップコーヒー12杯,食品,札幌,1,1200,1200
+2026-05-26,タンブラー,雑貨,大阪,1,2800,2800
+2026-05-27,ドリップパックギフト,ギフト,札幌,2,3200,6400
+2026-05-27,カフェオレベース,食品,名古屋,1,980,980
+2026-05-27,ドリップパックギフト,ギフト,東京,2,3200,6400
+2026-05-27,カフェオレベース,食品,名古屋,1,980,980
+2026-05-28,タンブラー,雑貨,その他,3,2800,8400
+2026-05-28,定期便（月1）,サブスク,福岡,4,3600,14400
+2026-05-28,カフェオレベース,食品,その他,1,980,980
+2026-05-28,タンブラー,雑貨,大阪,2,2800,5600
+2026-05-28,タンブラー,雑貨,大阪,2,2800,5600
+2026-05-28,ドリップパックギフト,ギフト,東京,4,3200,12800
+2026-05-29,ギフトセット,ギフト,その他,2,4500,9000
+2026-05-29,タンブラー,雑貨,札幌,1,2800,2800
+2026-05-29,ドリップパックギフト,ギフト,名古屋,1,3200,3200
+2026-05-29,ドリップコーヒー12杯,食品,福岡,4,1200,4800
+2026-05-29,タンブラー,雑貨,東京,3,2800,8400
+2026-05-29,ギフトセット,ギフト,東京,1,4500,4500
+2026-05-30,カフェオレベース,食品,その他,2,980,1960
+2026-05-30,ドリップコーヒー12杯,食品,大阪,1,1200,1200
+2026-05-30,ギフトセット,ギフト,東京,3,4500,13500
+2026-05-30,タンブラー,雑貨,大阪,1,2800,2800
+2026-05-30,マグカップ,雑貨,名古屋,1,1800,1800
+2026-05-31,タンブラー,雑貨,東京,4,2800,11200
+2026-05-31,定期便（月1）,サブスク,東京,5,3600,18000
+2026-05-31,ギフトセット,ギフト,大阪,4,4500,18000
+2026-05-31,コーヒー豆200g,食品,その他,1,1500,1500
+2026-05-31,ドリップパックギフト,ギフト,札幌,5,3200,16000
+2026-06-01,コーヒー豆200g,食品,東京,3,1500,4500
+2026-06-01,コーヒー豆200g,食品,福岡,2,1500,3000
+2026-06-01,タンブラー,雑貨,札幌,2,2800,5600
+2026-06-01,ギフトセット,ギフト,東京,1,4500,4500
+2026-06-01,ドリップコーヒー12杯,食品,その他,2,1200,2400
+2026-06-02,マグカップ,雑貨,名古屋,2,1800,3600
+2026-06-02,定期便（月1）,サブスク,大阪,4,3600,14400
+2026-06-02,ドリップパックギフト,ギフト,東京,1,3200,3200
+2026-06-02,ドリップコーヒー12杯,食品,名古屋,1,1200,1200
+2026-06-02,コーヒー豆200g,食品,名古屋,1,1500,1500
+2026-06-03,定期便（月1）,サブスク,その他,1,3600,3600
+2026-06-03,ドリップパックギフト,ギフト,福岡,2,3200,6400
+2026-06-03,ドリップパックギフト,ギフト,札幌,3,3200,9600
+2026-06-03,ドリップパックギフト,ギフト,東京,5,3200,16000
+2026-06-03,ギフトセット,ギフト,大阪,1,4500,4500
+2026-06-03,マグカップ,雑貨,東京,4,1800,7200
+2026-06-04,ギフトセット,ギフト,東京,1,4500,4500
+2026-06-04,コーヒー豆200g,食品,札幌,5,1500,7500
+2026-06-04,コーヒー豆200g,食品,福岡,3,1500,4500
+2026-06-04,ドリップコーヒー12杯,食品,大阪,1,1200,1200
+2026-06-04,カフェオレベース,食品,東京,3,980,2940
+2026-06-05,マグカップ,雑貨,札幌,2,1800,3600
+2026-06-05,マグカップ,雑貨,東京,1,1800,1800
+2026-06-05,ドリップコーヒー12杯,食品,その他,1,1200,1200
+2026-06-05,カフェオレベース,食品,札幌,2,980,1960
+2026-06-05,コーヒー豆200g,食品,東京,3,1500,4500
+2026-06-05,ドリップコーヒー12杯,食品,福岡,1,1200,1200
+2026-06-05,ギフトセット,ギフト,東京,1,4500,4500
+2026-06-06,ドリップパックギフト,ギフト,福岡,2,3200,6400
+2026-06-06,定期便（月1）,サブスク,大阪,2,3600,7200
+2026-06-06,コーヒー豆200g,食品,東京,2,1500,3000
+2026-06-06,ドリップコーヒー12杯,食品,その他,3,1200,3600
+2026-06-07,タンブラー,雑貨,その他,2,2800,5600
+2026-06-07,ドリップコーヒー12杯,食品,札幌,5,1200,6000
+2026-06-07,ドリップパックギフト,ギフト,名古屋,3,3200,9600
+2026-06-07,定期便（月1）,サブスク,東京,1,3600,3600
+2026-06-07,カフェオレベース,食品,東京,1,980,980
+2026-06-07,ギフトセット,ギフト,名古屋,1,4500,4500
+2026-06-07,タンブラー,雑貨,名古屋,2,2800,5600
+2026-06-08,コーヒー豆200g,食品,福岡,4,1500,6000
+2026-06-08,マグカップ,雑貨,その他,2,1800,3600
+2026-06-08,ドリップパックギフト,ギフト,大阪,1,3200,3200
+2026-06-09,コーヒー豆200g,食品,大阪,1,1500,1500
+2026-06-09,タンブラー,雑貨,東京,1,2800,2800
+2026-06-09,定期便（月1）,サブスク,札幌,1,3600,3600
+2026-06-09,コーヒー豆200g,食品,福岡,2,1500,3000
+2026-06-09,ギフトセット,ギフト,名古屋,4,4500,18000
+2026-06-09,ギフトセット,ギフト,大阪,3,4500,13500
+2026-06-10,ドリップコーヒー12杯,食品,名古屋,5,1200,6000
+2026-06-10,ギフトセット,ギフト,名古屋,1,4500,4500
+2026-06-10,カフェオレベース,食品,東京,3,980,2940
+2026-06-10,コーヒー豆200g,食品,名古屋,1,1500,1500
+2026-06-10,コーヒー豆200g,食品,名古屋,3,1500,4500
+2026-06-10,ドリップパックギフト,ギフト,その他,4,3200,12800
+2026-06-11,ドリップコーヒー12杯,食品,福岡,2,1200,2400
+2026-06-11,タンブラー,雑貨,東京,1,2800,2800
+2026-06-11,タンブラー,雑貨,大阪,5,2800,14000
+2026-06-11,カフェオレベース,食品,名古屋,4,980,3920
+2026-06-11,ドリップパックギフト,ギフト,福岡,1,3200,3200
+2026-06-11,ドリップコーヒー12杯,食品,名古屋,1,1200,1200
+2026-06-11,ドリップパックギフト,ギフト,大阪,2,3200,6400
+2026-06-12,タンブラー,雑貨,福岡,3,2800,8400
+2026-06-12,コーヒー豆200g,食品,東京,4,1500,6000
+2026-06-12,ドリップコーヒー12杯,食品,東京,3,1200,3600
+2026-06-12,ドリップパックギフト,ギフト,大阪,2,3200,6400
+2026-06-12,タンブラー,雑貨,名古屋,1,2800,2800
+2026-06-13,ドリップパックギフト,ギフト,福岡,1,3200,3200
+2026-06-13,定期便（月1）,サブスク,大阪,2,3600,7200
+2026-06-13,マグカップ,雑貨,名古屋,1,1800,1800
+2026-06-13,ドリップコーヒー12杯,食品,その他,1,1200,1200
+2026-06-13,カフェオレベース,食品,東京,3,980,2940
+2026-06-14,ドリップコーヒー12杯,食品,大阪,2,1200,2400
+2026-06-14,カフェオレベース,食品,福岡,1,980,980
+2026-06-14,ギフトセット,ギフト,札幌,1,4500,4500
+2026-06-15,ドリップパックギフト,ギフト,その他,1,3200,3200
+2026-06-15,ギフトセット,ギフト,名古屋,2,4500,9000
+2026-06-15,ドリップパックギフト,ギフト,大阪,1,3200,3200
+2026-06-16,カフェオレベース,食品,名古屋,4,980,3920
+2026-06-16,ギフトセット,ギフト,札幌,1,4500,4500
+2026-06-16,マグカップ,雑貨,大阪,2,1800,3600
+2026-06-16,コーヒー豆200g,食品,大阪,1,1500,1500
+2026-06-16,ギフトセット,ギフト,福岡,1,4500,4500
+2026-06-17,コーヒー豆200g,食品,東京,2,1500,3000
+2026-06-17,ギフトセット,ギフト,その他,1,4500,4500
+2026-06-17,カフェオレベース,食品,東京,1,980,980
+2026-06-18,カフェオレベース,食品,福岡,2,980,1960
+2026-06-18,コーヒー豆200g,食品,福岡,1,1500,1500
+2026-06-18,定期便（月1）,サブスク,名古屋,2,3600,7200
+2026-06-18,定期便（月1）,サブスク,その他,3,3600,10800
+2026-06-19,ギフトセット,ギフト,名古屋,4,4500,18000
+2026-06-19,カフェオレベース,食品,大阪,2,980,1960
+2026-06-19,タンブラー,雑貨,名古屋,3,2800,8400
+2026-06-19,ギフトセット,ギフト,大阪,2,4500,9000
+2026-06-19,定期便（月1）,サブスク,大阪,1,3600,3600
+2026-06-19,タンブラー,雑貨,札幌,1,2800,2800
+2026-06-19,コーヒー豆200g,食品,名古屋,2,1500,3000
+2026-06-20,ドリップコーヒー12杯,食品,札幌,2,1200,2400
+2026-06-20,マグカップ,雑貨,大阪,1,1800,1800
+2026-06-20,カフェオレベース,食品,大阪,5,980,4900
+2026-06-20,ギフトセット,ギフト,東京,5,4500,22500
+2026-06-20,カフェオレベース,食品,福岡,1,980,980
+2026-06-20,定期便（月1）,サブスク,名古屋,2,3600,7200
+2026-06-21,ギフトセット,ギフト,大阪,4,4500,18000
+2026-06-21,ギフトセット,ギフト,東京,3,4500,13500
+2026-06-21,ギフトセット,ギフト,東京,1,4500,4500
+2026-06-21,ドリップパックギフト,ギフト,福岡,1,3200,3200
+2026-06-21,カフェオレベース,食品,名古屋,1,980,980
+2026-06-22,ギフトセット,ギフト,福岡,1,4500,4500
+2026-06-22,ドリップパックギフト,ギフト,福岡,1,3200,3200
+2026-06-22,コーヒー豆200g,食品,大阪,1,1500,1500
+2026-06-22,ギフトセット,ギフト,福岡,4,4500,18000
+2026-06-23,コーヒー豆200g,食品,大阪,2,1500,3000
+2026-06-23,ギフトセット,ギフト,大阪,1,4500,4500
+2026-06-23,マグカップ,雑貨,福岡,1,1800,1800
+2026-06-23,マグカップ,雑貨,東京,1,1800,1800
+2026-06-23,コーヒー豆200g,食品,福岡,1,1500,1500
+2026-06-23,ドリップコーヒー12杯,食品,札幌,3,1200,3600
+2026-06-23,カフェオレベース,食品,東京,2,980,1960
+2026-06-24,カフェオレベース,食品,東京,3,980,2940
+2026-06-24,ギフトセット,ギフト,東京,3,4500,13500
+2026-06-24,定期便（月1）,サブスク,福岡,2,3600,7200
+2026-06-24,定期便（月1）,サブスク,東京,1,3600,3600
+2026-06-25,マグカップ,雑貨,その他,1,1800,1800
+2026-06-25,定期便（月1）,サブスク,東京,2,3600,7200
+2026-06-25,ドリップパックギフト,ギフト,大阪,2,3200,6400
+2026-06-25,カフェオレベース,食品,札幌,4,980,3920
+2026-06-25,カフェオレベース,食品,東京,4,980,3920
+2026-06-25,定期便（月1）,サブスク,名古屋,4,3600,14400
+2026-06-26,コーヒー豆200g,食品,福岡,1,1500,1500
+2026-06-26,タンブラー,雑貨,名古屋,2,2800,5600
+2026-06-26,ドリップパックギフト,ギフト,その他,1,3200,3200
+2026-06-27,ギフトセット,ギフト,大阪,5,4500,22500
+2026-06-27,ドリップパックギフト,ギフト,東京,2,3200,6400
+2026-06-27,コーヒー豆200g,食品,東京,1,1500,1500
+2026-06-27,コーヒー豆200g,食品,福岡,4,1500,6000
+2026-06-27,カフェオレベース,食品,東京,1,980,980
+2026-06-27,定期便（月1）,サブスク,東京,3,3600,10800
+2026-06-28,定期便（月1）,サブスク,その他,2,3600,7200
+2026-06-28,ドリップコーヒー12杯,食品,札幌,1,1200,1200
+2026-06-28,ドリップパックギフト,ギフト,東京,1,3200,3200
+2026-06-28,タンブラー,雑貨,東京,1,2800,2800
+2026-06-28,定期便（月1）,サブスク,札幌,1,3600,3600
+2026-06-28,定期便（月1）,サブスク,東京,2,3600,7200
+2026-06-29,マグカップ,雑貨,東京,3,1800,5400
+2026-06-29,ドリップコーヒー12杯,食品,東京,2,1200,2400
+2026-06-29,ドリップパックギフト,ギフト,福岡,1,3200,3200
+2026-06-29,ギフトセット,ギフト,名古屋,1,4500,4500
+2026-06-29,ドリップコーヒー12杯,食品,大阪,1,1200,1200
+2026-06-29,ドリップパックギフト,ギフト,東京,5,3200,16000
+2026-06-29,ドリップコーヒー12杯,食品,東京,1,1200,1200
+2026-06-30,コーヒー豆200g,食品,福岡,3,1500,4500
+2026-06-30,ギフトセット,ギフト,大阪,1,4500,4500
+2026-06-30,ギフトセット,ギフト,東京,4,4500,18000
+2026-06-30,定期便（月1）,サブスク,大阪,5,3600,18000</script>
+<script>
+(() => {
+  const DEFAULT_SOURCE = "売上データ_4-6月.csv";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const yen = (v) => "¥" + Math.round(v).toLocaleString("ja-JP");
+  const num = (v) => Math.round(v).toLocaleString("ja-JP");
+  const man = (v) => v === 0 ? "0" : v >= 10000 ? (v / 10000).toLocaleString("ja-JP", { maximumFractionDigits: 1 }) + "万" : num(v);
+  const pct = (v) => (v * 100).toLocaleString("ja-JP", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%";
+
+  // ---------- CSV ----------
+  function splitLine(line) {
+    const out = []; let cur = "", q = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (q) {
+        if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+        else cur += c;
+      } else if (c === '"') q = true;
+      else if (c === ",") { out.push(cur); cur = ""; }
+      else cur += c;
+    }
+    out.push(cur);
+    return out.map((s) => s.trim());
+  }
+  const toNum = (s) => { const n = Number(String(s ?? "").replace(/[¥￥,\s円個]/g, "")); return String(s ?? "").trim() !== "" && Number.isFinite(n) ? n : NaN; };
+
+  function parseCSV(text) {
+    text = text.replace(/^﻿/, "");
+    const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
+    if (lines.length < 2) throw new Error("データ行がありません。");
+    const head = splitLine(lines[0]);
+    const c = { date: head.indexOf("日付"), product: head.indexOf("商品名"), cat: head.indexOf("カテゴリ"), region: head.indexOf("地域"), qty: head.indexOf("数量"), price: head.indexOf("単価"), sales: head.indexOf("売上金額") };
+    const missing = [["日付", c.date], ["商品名", c.product], ["数量", c.qty]].filter(([, i]) => i < 0).map(([n]) => n);
+    if (c.sales < 0 && c.price < 0) missing.push("売上金額");
+    if (missing.length) throw new Error(`「${missing.join("」「")}」の列が見つかりません。1行目の見出しを確認してください。`);
+    const rows = []; let skipped = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const f = splitLine(lines[i]);
+      const m = (f[c.date] || "").match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
+      const qty = toNum(f[c.qty]);
+      let sales = c.sales >= 0 ? toNum(f[c.sales]) : NaN;
+      if (!Number.isFinite(sales) && c.price >= 0) sales = qty * toNum(f[c.price]);
+      if (!m || !f[c.product] || !Number.isFinite(qty) || !Number.isFinite(sales)) { skipped++; continue; }
+      const y = m[1], mo = m[2].padStart(2, "0"), d = m[3].padStart(2, "0");
+      rows.push({ date: `${y}-${mo}-${d}`, month: `${y}-${mo}`, product: f[c.product], cat: c.cat >= 0 ? (f[c.cat] || "") : "", region: c.region >= 0 ? (f[c.region] || "") : null, qty, sales });
+    }
+    if (!rows.length) throw new Error("読み取れる行がありませんでした。日付・数量・売上金額の形式を確認してください。");
+    return { rows, skipped };
+  }
+
+  async function readFile(file) {
+    const buf = await file.arrayBuffer();
+    let text = new TextDecoder("utf-8").decode(buf);
+    if (!text.includes("商品名")) {
+      try { text = new TextDecoder("shift_jis").decode(buf); } catch (e) { /* UTF-8のまま */ }
+    }
+    return text;
+  }
+
+  // ---------- 状態 ----------
+  let data = null;
+  const state = { month: "all", metric: "sales" };
+  const tips = [];
+
+  function load(text, source) {
+    const { rows, skipped } = parseCSV(text);
+    setData(rows, skipped, source);
+  }
+
+  function setData(rows, skipped, source) {
+    const months = [...new Set(rows.map((r) => r.month))].sort();
+    const years = new Set(months.map((m) => m.slice(0, 4)));
+    data = { rows, months, source, skipped, multiYear: years.size > 1 };
+    state.month = "all";
+    render();
+  }
+
+  const monthLabel = (m) => data.multiYear ? `${m.slice(0, 4)}年${+m.slice(5)}月` : `${+m.slice(5)}月`;
+  const dateLabel = (d) => `${d.slice(0, 4)}年${+d.slice(5, 7)}月${+d.slice(8)}日`;
+
+  function agg(rows) {
+    const map = new Map(); let total = 0, qty = 0;
+    for (const r of rows) {
+      total += r.sales; qty += r.qty;
+      let e = map.get(r.product);
+      if (!e) { e = { name: r.product, cat: r.cat, sales: 0, qty: 0 }; map.set(r.product, e); }
+      e.sales += r.sales; e.qty += r.qty;
+    }
+    return { total, qty, count: rows.length, products: [...map.values()] };
+  }
+  const rowsOf = (m) => m === "all" ? data.rows : data.rows.filter((r) => r.month === m);
+
+  function deltaHTML(cur, prev, prevName) {
+    if (prev == null || prev === 0) return "";
+    const d = (cur - prev) / prev;
+    const cls = d > 0 ? "up" : d < 0 ? "down" : "";
+    const arrow = d > 0 ? "▲" : d < 0 ? "▼" : "±";
+    return `<span class="delta ${cls}">${arrow} ${pct(Math.abs(d))}</span> ${esc(prevName)}比`;
+  }
+
+  // ---------- 描画 ----------
+  function render() {
+    tips.length = 0;
+    const dates = data.rows.map((r) => r.date).sort();
+    $("period").textContent = `${dateLabel(dates[0])} 〜 ${dateLabel(dates[dates.length - 1])}　・　${data.source}`;
+    renderFilters(); renderKPIs(); renderMonths(); renderRanking(); renderAreas(); renderTable();
+  }
+
+  function renderFilters() {
+    const opts = [["all", "全期間"], ...data.months.map((m) => [m, monthLabel(m)])];
+    $("monthSeg").innerHTML = opts.map(([v, l]) => `<button type="button" data-month="${esc(v)}" aria-pressed="${state.month === v}">${esc(l)}</button>`).join("");
+    document.querySelectorAll("#metricSeg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.metric === state.metric)));
+  }
+
+  function renderKPIs() {
+    const cur = agg(rowsOf(state.month));
+    let prev = null, prevName = "";
+    const i = data.months.indexOf(state.month);
+    if (i > 0) { prev = agg(rowsOf(data.months[i - 1])); prevName = "前月"; }
+    const avg = cur.count ? cur.total / cur.count : 0;
+    const scope = state.month === "all"
+      ? `${monthLabel(data.months[0])}〜${monthLabel(data.months[data.months.length - 1])}の合計`
+      : `${monthLabel(state.month)}の売上`;
+    const heroNote = state.month === "all"
+      ? `月平均 ${yen(cur.total / data.months.length)}（${data.months.length}か月）`
+      : (prev ? deltaHTML(cur.total, prev.total, prevName) : "比較できる前月のデータがありません");
+    const note = (c, p) => prev ? `<div class="note">${deltaHTML(c, p, prevName)}</div>` : "";
+    $("kpis").innerHTML = `
+      <div class="kpi hero"><div class="label">合計売上（${esc(scope)}）</div><div class="value">${yen(cur.total)}</div><div class="note">${heroNote}</div></div>
+      <div class="kpi"><div class="label">取引件数</div><div class="value">${num(cur.count)}<small>件</small></div>${note(cur.count, prev?.count)}</div>
+      <div class="kpi"><div class="label">販売数量</div><div class="value">${num(cur.qty)}<small>個</small></div>${note(cur.qty, prev?.qty)}</div>
+      <div class="kpi"><div class="label">平均取引額</div><div class="value">${yen(avg)}</div>${note(avg, prev ? prev.total / prev.count : null)}</div>`;
+  }
+
+  function niceStep(raw) {
+    const p = Math.pow(10, Math.floor(Math.log10(raw)));
+    const f = raw / p;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+  }
+
+  function renderMonths() {
+    const totals = data.months.map((m) => agg(rowsOf(m)));
+    const max = Math.max(...totals.map((t) => t.total), 1);
+    const step = niceStep(max / 4);
+    const top = Math.ceil(max / step) * step;
+    let grid = "";
+    for (let v = 0; v <= top + 1e-9; v += step) {
+      grid += `<div class="gl" style="bottom:${(v / top) * 100}%${v === 0 ? ";border-top:0" : ""}"><span>${man(v)}</span></div>`;
+    }
+    const cols = data.months.map((m, i) => {
+      const t = totals[i];
+      const dim = state.month !== "all" && state.month !== m;
+      const prev = i > 0 ? totals[i - 1].total : null;
+      const tipId = tips.push(`<b>${esc(monthLabel(m))}</b>
+        <div class="r"><span>売上</span><span>${yen(t.total)}</span></div>
+        <div class="r"><span>取引件数</span><span>${num(t.count)}件</span></div>
+        <div class="r"><span>販売数量</span><span>${num(t.qty)}個</span></div>
+        ${prev ? `<div class="r"><span>前月比</span><span>${t.total >= prev ? "+" : "−"}${pct(Math.abs(t.total - prev) / prev)}</span></div>` : ""}`) - 1;
+      return `<button type="button" class="col" data-month="${esc(m)}" data-tip="${tipId}" aria-label="${esc(monthLabel(m))} ${yen(t.total)}">
+        <div class="bar${dim ? " dim" : ""}" style="height:${(t.total / top) * 100}%"><span class="v">${man(t.total)}</span></div></button>`;
+    }).join("");
+    $("colchart").innerHTML = `<div class="plot">${grid}<div class="cols">${cols}</div></div>`;
+    $("xlabels").innerHTML = data.months.map((m, i) => {
+      const prev = i > 0 ? totals[i - 1].total : null;
+      const d = prev ? (totals[i].total - prev) / prev : null;
+      const dh = d == null ? `<span class="d" style="color:var(--muted)">—</span>`
+        : `<span class="d delta ${d > 0 ? "up" : d < 0 ? "down" : ""}">${d > 0 ? "▲" : d < 0 ? "▼" : "±"} ${pct(Math.abs(d))}</span>`;
+      return `<div class="${state.month === m ? "sel" : ""}">${esc(monthLabel(m))}${dh}</div>`;
+    }).join("");
+  }
+
+  function renderRanking() {
+    const cur = agg(rowsOf(state.month));
+    const k = state.metric;
+    const list = cur.products.sort((a, b) => b[k] - a[k] || b.sales - a.sales);
+    const max = Math.max(list[0]?.[k] || 0, 1);
+    const sum = k === "sales" ? cur.total : cur.qty;
+    const fmt = (v) => k === "sales" ? yen(v) : `${num(v)}個`;
+    $("rankSub").textContent = `${state.month === "all" ? "全期間" : monthLabel(state.month)}・${k === "sales" ? "売上金額" : "販売数量"}の多い順。右端は構成比`;
+    $("rank").innerHTML = list.map((p, i) => {
+      const tipId = tips.push(`<b>${i + 1}位　${esc(p.name)}</b>
+        ${p.cat ? `<div class="r"><span>カテゴリ</span><span>${esc(p.cat)}</span></div>` : ""}
+        <div class="r"><span>売上</span><span>${yen(p.sales)}</span></div>
+        <div class="r"><span>販売数量</span><span>${num(p.qty)}個</span></div>
+        <div class="r"><span>構成比（${k === "sales" ? "売上" : "数量"}）</span><span>${pct(p[k] / sum)}</span></div>`) - 1;
+      return `<li class="rk" tabindex="0" data-tip="${tipId}">
+        <span class="no">${i + 1}</span>
+        <div class="nm"><b>${esc(p.name)}</b>${p.cat ? `<span>${esc(p.cat)}</span>` : ""}</div>
+        <div class="track"><div class="fill" style="--p:${(p[k] / max).toFixed(4)}"></div><span class="val">${fmt(p[k])}</span></div>
+        <span class="share">${pct(p[k] / sum)}</span></li>`;
+    }).join("");
+  }
+
+  // ---------- エリア別 営業優先度 ----------
+  const OUT_OF_AREA = /^(その他|不明|未設定|（地域なし）)$/;
+  const WEIGHTS = { scale: 0.25, growth: 0.30, ticket: 0.15, sub: 0.15, bulk: 0.15 };
+  const signed = (v) => `${v >= 0 ? "+" : "−"}${pct(Math.abs(v))}`;
+  const spanLabel = (ms) => ms.length === 1 ? monthLabel(ms[0]) : `${monthLabel(ms[0])}〜${monthLabel(ms[ms.length - 1])}`;
+
+  function areaStats() {
+    // 伸び率: 直近 k か月と、その前の k か月の売上を比べる（k は最大3か月）
+    const n = data.months.length, k = Math.min(3, Math.floor(n / 2));
+    const recentMs = data.months.slice(n - k), prevMs = data.months.slice(n - 2 * k, n - k);
+    const recent = new Set(recentMs), prev = new Set(prevMs);
+    const total = data.rows.reduce((s, r) => s + r.sales, 0);
+    const map = new Map();
+    for (const r of data.rows) {
+      const g = r.region || "（地域なし）";
+      let e = map.get(g);
+      if (!e) { e = { name: g, sales: 0, count: 0, qty: 0, sub: 0, bulk: 0, recent: 0, prev: 0, products: new Map() }; map.set(g, e); }
+      e.sales += r.sales; e.count++; e.qty += r.qty;
+      if (r.cat === "サブスク") e.sub += r.sales;
+      if (r.qty >= 4) e.bulk++;
+      if (recent.has(r.month)) e.recent += r.sales;
+      if (prev.has(r.month)) e.prev += r.sales;
+      e.products.set(r.product, (e.products.get(r.product) || 0) + r.sales);
+    }
+    const areas = [...map.values()].map((e) => ({
+      name: e.name,
+      out: OUT_OF_AREA.test(e.name),
+      sales: e.sales,
+      share: e.sales / total,
+      growth: k && e.prev > 0 ? (e.recent - e.prev) / e.prev : null,
+      ticket: e.sales / e.count,
+      price: e.qty ? e.sales / e.qty : 0,
+      subShare: e.sub / e.sales,
+      bulkRate: e.bulk / e.count,
+      top: [...e.products].sort((a, b) => b[1] - a[1])[0][0],
+    }));
+
+    // 対象エリアどうしで各指標を 0〜1 に換算して重み付け
+    const targets = areas.filter((a) => !a.out);
+    const keyOf = { scale: "sales", growth: "growth", ticket: "ticket", sub: "subShare", bulk: "bulkRate" };
+    const useGrowth = targets.some((a) => a.growth != null);
+    const wsum = Object.keys(WEIGHTS).reduce((s, key) => s + (key === "growth" && !useGrowth ? 0 : WEIGHTS[key]), 0);
+    const best = {};
+    for (const key of Object.keys(keyOf)) {
+      const vals = targets.map((a) => a[keyOf[key]]).filter((v) => v != null);
+      const lo = Math.min(...vals), hi = Math.max(...vals);
+      best[keyOf[key]] = hi;
+      for (const a of targets) {
+        a.n = a.n || {};
+        const v = a[keyOf[key]];
+        a.n[key] = v == null || hi === lo ? 0 : (v - lo) / (hi - lo);
+      }
+    }
+    for (const a of targets) {
+      a.score = Object.keys(WEIGHTS).reduce((s, key) => s + (key === "growth" && !useGrowth ? 0 : WEIGHTS[key] * a.n[key]), 0) / wsum * 100;
+    }
+    targets.sort((a, b) => b.score - a.score);
+    targets.forEach((a, i) => Object.assign(a, tierOf(a, i)));
+    const others = areas.filter((a) => a.out).sort((a, b) => b.sales - a.sales);
+    others.forEach((a) => Object.assign(a, { cls: "out", label: "対象外", why: "地域を特定できないため、エリア営業の対象から外しています。" }));
+    return { list: targets.concat(others), best, recentMs, prevMs, hasRegion: data.rows.some((r) => r.region != null) };
+  }
+
+  function tierOf(a, rank) {
+    const g = a.growth != null ? `直近の伸び率 ${signed(a.growth)}` : "";
+    if (rank === 0) return { cls: "top", label: "最優先",
+      why: `${g ? `${g}で、` : ""}総合スコアが全エリアで最も高い。売れ筋の「${a.top}」を中心に、訪問回数を増やして新しい取引先を開拓する。` };
+    if (a.score >= 50 || a.n.growth >= 0.8) return { cls: "focus", label: "重点",
+      why: `${g ? `${g}と伸びが大きい。` : "スコアが高い。"}「${a.top}」の提案を軸に、伸びているうちに取引先を増やす。` };
+    if (a.n.scale >= 0.7) return { cls: "", label: "維持",
+      why: `売上の${pct(a.share)}を占める${a.n.scale === 1 ? "最大の" : "大きな"}市場だが、${g ? `${g}で伸びが鈍い。` : "伸びは目立たない。"}今のお得意様が離れないように、定期フォローと定期便への切り替えを提案する。` };
+    if (a.n.sub >= 0.7) return { cls: "", label: "お得意様フォロー",
+      why: `定期便の売上比率が${pct(a.subShare)}と高く、続けて買ってくれる顧客が多い。継続利用のお礼訪問と、単価の高い商品の追加提案を行う。` };
+    if (Math.max(a.n.ticket, a.n.bulk) >= 0.7) return { cls: "", label: "大口狙い",
+      why: `1回の取引額${yen(a.ticket)}、まとめ買い率${pct(a.bulkRate)}と、1件あたりの規模が大きい。件数が少ないので、法人など大口の見込み先に絞って訪問する。` };
+    return { cls: "", label: "育成",
+      why: `目立って強い指標はまだない。売れ筋の「${a.top}」で試しに訪問し、反応を見て力の入れ方を決める。` };
+  }
+
+  function renderAreas() {
+    const s = areaStats();
+    $("areaCard").hidden = !s.hasRegion;
+    if (!s.hasRegion) return;
+    const growthHead = s.prevMs.length ? `<small>${esc(spanLabel(s.recentMs))} vs ${esc(spanLabel(s.prevMs))}</small>` : "<small>比べる期間が足りません</small>";
+    $("areaSub").textContent = `読み込んだ全期間（${spanLabel(data.months)}）で計算しています。月の絞り込みとは関係なく表示します`;
+    const cell = (a, key, text) => `<td${!a.out && a[key] === s.best[key] ? ' class="best"' : ""}>${text}</td>`;
+    $("areabox").innerHTML = `<table class="area">
+      <thead><tr><th scope="col" class="l">優先度</th><th scope="col" class="l">地域</th><th scope="col" class="l">優先スコア</th>
+        <th scope="col">売上<small>構成比</small></th><th scope="col">伸び率${growthHead}</th><th scope="col">平均取引額<small>1件あたり</small></th>
+        <th scope="col">平均単価<small>1個あたり</small></th><th scope="col">定期便比率<small>売上比</small></th><th scope="col">まとめ買い率<small>4個以上の取引</small></th>
+        <th scope="col" class="l">売れ筋</th></tr></thead>
+      <tbody>${s.list.map((a) => `<tr class="main${a.out ? " out" : ""}">
+        <td class="l"><span class="pill ${a.cls}">${esc(a.label)}</span></td>
+        <td class="l"><b>${esc(a.name)}</b></td>
+        <td class="l">${a.out ? "—" : `<span class="score"><span class="sbar"><i style="width:${a.score.toFixed(0)}%"></i></span>${a.score.toFixed(0)}</span>`}</td>
+        ${cell(a, "sales", `${yen(a.sales)}<small class="sh">${pct(a.share)}</small>`)}
+        ${cell(a, "growth", a.growth == null ? "—" : signed(a.growth))}
+        ${cell(a, "ticket", yen(a.ticket))}
+        <td>${yen(a.price)}</td>
+        ${cell(a, "subShare", pct(a.subShare))}
+        ${cell(a, "bulkRate", pct(a.bulkRate))}
+        <td class="l">${esc(a.top)}</td></tr>
+        <tr class="${a.out ? "out" : ""}"><td></td><td colspan="9" class="l why"><b>営業の狙い</b>${esc(a.why)}</td></tr>`).join("")}</tbody>
+    </table>`;
+  }
+
+  function renderTable() {
+    const all = agg(data.rows).products.sort((a, b) => b.sales - a.sales);
+    const byPM = new Map();
+    for (const r of data.rows) { const key = r.product + "\u0000" + r.month; byPM.set(key, (byPM.get(key) || 0) + r.sales); }
+    const hl = (m) => state.month === m ? ' class="hl"' : "";
+    const monthTotals = data.months.map((m) => agg(rowsOf(m)).total);
+    $("tablebox").innerHTML = `<table>
+      <thead><tr><th scope="col">商品名</th><th scope="col">カテゴリ</th>${data.months.map((m) => `<th scope="col"${hl(m)}>${esc(monthLabel(m))}</th>`).join("")}<th scope="col"${hl("all")}>合計</th></tr></thead>
+      <tbody>${all.map((p) => `<tr><td>${esc(p.name)}</td><td class="cat">${esc(p.cat)}</td>${data.months.map((m) => `<td${hl(m)}>${num(byPM.get(p.name + "\u0000" + m) || 0)}</td>`).join("")}<td${hl("all")}>${num(p.sales)}</td></tr>`).join("")}</tbody>
+      <tfoot><tr><td>合計</td><td></td>${monthTotals.map((v, i) => `<td${hl(data.months[i])}>${num(v)}</td>`).join("")}<td${hl("all")}>${num(agg(data.rows).total)}</td></tr></tfoot>
+    </table>`;
+  }
+
+  // ---------- 操作 ----------
+  document.addEventListener("click", (e) => {
+    const mb = e.target.closest("[data-month]");
+    if (mb) {
+      const m = mb.dataset.month;
+      state.month = mb.classList.contains("col") && state.month === m ? "all" : m;
+      hideTip(); render(); return;
+    }
+    const kb = e.target.closest("[data-metric]");
+    if (kb) { state.metric = kb.dataset.metric; hideTip(); render(); }
+  });
+
+  const tip = $("tip");
+  let tipEl = null;
+  function showTip(el, x, y) {
+    tipEl = el;
+    tip.innerHTML = tips[+el.dataset.tip] || "";
+    tip.hidden = false;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let left = Math.min(x + 14, window.innerWidth - w - 8);
+    let topY = y - h - 12;
+    if (topY < 8) topY = y + 18;
+    tip.style.left = Math.max(8, left) + "px";
+    tip.style.top = topY + "px";
+  }
+  function hideTip() { tip.hidden = true; tipEl = null; }
+  document.addEventListener("pointermove", (e) => {
+    const el = e.target.closest?.("[data-tip]");
+    if (el) showTip(el, e.clientX, e.clientY); else if (tipEl) hideTip();
+  });
+  document.addEventListener("pointerleave", hideTip);
+  document.addEventListener("focusin", (e) => {
+    const el = e.target.closest?.("[data-tip]");
+    if (el) { const r = el.getBoundingClientRect(); showTip(el, r.left + r.width / 2, r.top); } else hideTip();
+  });
+  document.addEventListener("scroll", hideTip, { passive: true });
+
+  function setStatus(msg, isErr) {
+    $("status").className = isErr ? "status err" : "status";
+    $("status").textContent = msg;
+  }
+  const rowsNote = () => `${num(data.rows.length)}行${data.skipped ? `、読み取れなかった${data.skipped}行は除外` : ""}`;
+
+  // 複数のCSVを1つのデータにまとめる。sources は { name, read() } の配列
+  async function loadMany(sources, label) {
+    let rows = [], skipped = 0;
+    for (const src of sources) {
+      try {
+        const p = parseCSV(await src.read());
+        rows = rows.concat(p.rows); skipped += p.skipped;
+      } catch (err) { throw new Error(`「${src.name}」: ${err.message}`); }
+    }
+    setData(rows, skipped, label);
+  }
+
+  async function loadFiles(fileList) {
+    const files = [...fileList];
+    if (!files.length) return;
+    try {
+      const label = files.length === 1 ? files[0].name : `${files.length}ファイルをまとめて表示`;
+      await loadMany(files.map((f) => ({ name: f.name, read: () => readFile(f) })), label);
+      picker.path = null; renderPicker();
+      setStatus(`${files.map((f) => `「${f.name}」`).join("")}を読み込みました（${rowsNote()}）。`);
+    } catch (err) {
+      setStatus(`読み込めませんでした。${err.message}`, true);
+    }
+  }
+
+  // ---------- 業務フォルダのCSV（server.py 経由で開いたときだけ表示） ----------
+  const ALL = "__all__";
+  const picker = { files: [], path: null };
+  const shortDate = (d) => `${+d.slice(5, 7)}/${+d.slice(8)}`;
+  const fileLabel = (f) => `${f.name}（${f.from ? `${shortDate(f.from)}〜${shortDate(f.to)}・` : ""}${num(f.rows)}行）`;
+
+  function renderPicker() {
+    const sel = $("csvSelect");
+    const groups = new Map();
+    for (const f of picker.files) { if (!groups.has(f.dir)) groups.set(f.dir, []); groups.get(f.dir).push(f); }
+    const canAll = picker.files.length > 1;
+    const known = picker.path === ALL ? canAll : picker.files.some((f) => f.path === picker.path);
+    const placeholder = picker.files.length ? "CSVを選んでください" : "同じ形式のCSVが見つかりません";
+    sel.innerHTML = (known ? "" : `<option value="">${placeholder}</option>`) +
+      (canAll ? `<option value="${ALL}">すべてまとめて（${picker.files.length}ファイル）</option>` : "") + [...groups].map(([dir, fs]) =>
+      `<optgroup label="${esc(dir || "（業務フォルダ直下）")}">${fs.map((f) => `<option value="${esc(f.path)}">${esc(fileLabel(f))}</option>`).join("")}</optgroup>`).join("");
+    sel.value = known ? picker.path : "";
+  }
+
+  async function scanFolder() {
+    const res = await fetch("api/files", { cache: "no-store" });
+    if (!res.ok) throw new Error(`一覧を取得できませんでした（${res.status}）`);
+    const j = await res.json();
+    picker.files = j.files;
+    $("csvSelect").title = `業務フォルダ: ${j.root}`;
+    renderPicker();
+  }
+
+  async function fetchCSV(path) {
+    const res = await fetch(`api/csv?path=${encodeURIComponent(path)}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+    return res.text();
+  }
+
+  async function loadFromServer(path) {
+    try {
+      if (path === ALL) {
+        const n = picker.files.length;
+        await loadMany(picker.files.map((f) => ({ name: f.path, read: () => fetchCSV(f.path) })), `業務フォルダの売上CSV ${n}件をまとめて表示`);
+        setStatus(`業務フォルダの売上CSV ${n}件をまとめて表示しています（${rowsNote()}）。`);
+      } else {
+        const f = picker.files.find((x) => x.path === path);
+        load(await fetchCSV(path), f ? f.name : path);
+        setStatus(`業務フォルダの「${path}」を表示しています（${rowsNote()}）。`);
+      }
+      picker.path = path;
+    } catch (err) {
+      setStatus(`読み込めませんでした。${err.message}`, true);
+    }
+    renderPicker();
+  }
+
+  async function initPicker() {
+    if (!/^https?:$/.test(location.protocol)) return;
+    try { await scanFolder(); } catch (e) { return; } // server.py なしで開いたときは何も出さない
+    $("picker").hidden = false;
+    const def = picker.files.find((f) => f.name.normalize("NFC") === DEFAULT_SOURCE.normalize("NFC"));
+    if (def) loadFromServer(def.path);
+  }
+
+  $("csvSelect").addEventListener("change", (e) => { if (e.target.value) loadFromServer(e.target.value); });
+  $("rescan").addEventListener("click", async () => {
+    try { await scanFolder(); setStatus(`業務フォルダを読み直しました（売上CSV ${picker.files.length}件）。`); }
+    catch (err) { setStatus(`${err.message}。server.py が動いているか確認してください。`, true); }
+  });
+  $("file").addEventListener("change", (e) => { loadFiles(e.target.files); e.target.value = ""; });
+  document.addEventListener("dragover", (e) => { e.preventDefault(); document.body.classList.add("dragging"); });
+  document.addEventListener("dragleave", (e) => { if (!e.relatedTarget) document.body.classList.remove("dragging"); });
+  document.addEventListener("drop", (e) => {
+    e.preventDefault(); document.body.classList.remove("dragging");
+    loadFiles(e.dataTransfer.files);
+  });
+
+  try { load($("csv-data").textContent.trim(), DEFAULT_SOURCE); }
+  catch (err) { setStatus(err.message, true); }
+  initPicker();
+})();
+</script>
